@@ -1,0 +1,8 @@
+{
+  "name": "package-cache",
+  "private": true,
+  "description": "Sonatype Nexus Repository CE on Railway: pull-through cache for npm, NuGet and Cargo",
+  "devDependencies": {
+    "railway": "^3"
+  }
+}
