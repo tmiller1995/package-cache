@@ -6,7 +6,8 @@ export default defineRailway(() => {
   // PostgreSQL rather than the embedded H2: Sonatype calls H2-in-a-container
   // unsupported, and Cargo / NuGet v2 are PostgreSQL-only formats in CE.
   const db = postgres("Postgres");
-  const data = volume("nexus-data", { sizeMB: 20480 });
+  // Region was Railway-assigned on first apply; pinned so plan converges.
+  const data = volume("nexus-data", { sizeMB: 20480, region: "us-east4-eqdc4a" });
 
   const nexus = service("nexus", {
     source: github(REPO, { branch: "main" }),
