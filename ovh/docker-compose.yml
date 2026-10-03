@@ -1,0 +1,87 @@
+# Nexus CE + PostgreSQL + Cloudflare Tunnel on a single OVHcloud VPS.
+# Sized for VPS-3 (6 vCores / 12 GB). Run from this directory:
+#   docker compose up -d --build
+#
+# Nothing is published on the host: cloudflared reaches Nexus over the compose
+# network, so the only open port on the VPS is SSH.
+
+name: package-cache
+
+services:
+  postgres:
+    # Same major version as the Railway source (postgres-ssl:18) so pg_restore
+    # of the migrated dump is a straight copy.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexus
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # Postgres 18 images keep data under /var/lib/postgresql/18/docker, so the
+    # mount point is the parent directory, not .../data as in older images.
+    volumes:
+      - ${DATA_DIR:-/srv/package-cache-data}/postgres:/var/lib/postgresql
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-3GB}
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=100
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  nexus:
+    # Reuses the repo-root image: pinned Nexus tag, volume ownership fix and
+    # the auth rate-limiter workaround in entrypoint.sh. Keep the tag identical
+    # to Railway's until the migration is done; the restored database schema
+    # must match the Nexus version that reads it.
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: package-cache/nexus:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Sonatype guidance for PostgreSQL deployments is heap ~50% and direct
+      # memory ~25% of host RAM; Postgres shares this box, so stay below that.
+      INSTALL4J_ADD_VM_PARAMS: >-
+        -Xms${NEXUS_HEAP:-4g} -Xmx${NEXUS_HEAP:-4g}
+        -XX:MaxDirectMemorySize=${NEXUS_DIRECT_MEMORY:-2g}
+        -Djava.util.prefs.userRoot=/nexus-data/javaprefs
+      NEXUS_DATASTORE_NEXUS_JDBCURL: jdbc:postgresql://postgres:5432/nexus
+      NEXUS_DATASTORE_NEXUS_USERNAME: nexus
+      NEXUS_DATASTORE_NEXUS_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ${DATA_DIR:-/srv/package-cache-data}/nexus-data:/nexus-data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/service/rest/v1/status >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      nexus:
+        condition: service_healthy
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
