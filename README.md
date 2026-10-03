@@ -5,6 +5,9 @@ cache for npm (incl. the FontAwesome Pro registry), NuGet and Cargo, shared by
 Meeple Guild and Perfect Path. Reached through a Cloudflare Tunnel on
 tylersoftwaredeveloper.com; no public Railway domain.
 
+Moving off Railway: the OVHcloud VPS deployment and the migration runbook
+are in [`ovh/README.md`](ovh/README.md).
+
 Everything Railway-side is declared in `.railway/railway.ts` (Railway
 Infrastructure as Code). `railway.toml` is deprecated and not used here.
 
